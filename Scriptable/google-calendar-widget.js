@@ -17,26 +17,31 @@
 //   e.g. const CALENDARS = ["Work", "Personal"];
 const CALENDARS = [];
 
-const BACKGROUND_COLOR = new Color("#1c1c1e");
+const BACKGROUND_COLOR = new Color("#242529");
 const TEXT_COLOR       = new Color("#ffffff");
 const MUTED_COLOR      = new Color("#8e8e93");
 const MAX_EVENTS       = 8;  // maximum events to display
 
-// --- Fetch today's events ---
-async function getTodayEvents() {
-  const now   = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(),  0,  0,  0);
-  const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+// --- Fetch events for today and tomorrow ---
+async function getEvents() {
+  const now      = new Date();
+  const todayStart    = new Date(now.getFullYear(), now.getMonth(), now.getDate(),  0,  0,  0);
+  const todayEnd      = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1,  0,  0,  0);
+  const tomorrowEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59);
 
   let calendars = await Calendar.forEvents();
-
   if (CALENDARS.length > 0) {
     calendars = calendars.filter(c => CALENDARS.includes(c.title));
   }
 
-  const events = await CalendarEvent.between(start, end, calendars);
-  events.sort((a, b) => a.startDate - b.startDate);
-  return events;
+  const todayEvents    = await CalendarEvent.between(todayStart,    todayEnd,    calendars);
+  const tomorrowEvents = await CalendarEvent.between(tomorrowStart, tomorrowEnd, calendars);
+
+  todayEvents.sort(   (a, b) => a.startDate - b.startDate);
+  tomorrowEvents.sort((a, b) => a.startDate - b.startDate);
+
+  return { todayEvents, tomorrowEvents };
 }
 
 // --- Format event time ---
@@ -46,32 +51,19 @@ function formatTime(event) {
   return event.startDate.toLocaleTimeString("en-US", opts);
 }
 
-// --- Build widget ---
-async function buildWidget() {
-  const events = await getTodayEvents();
+// --- Render a section label (Today / Tomorrow) ---
+function addSectionLabel(w, label, isFirst) {
+  if (!isFirst) w.addSpacer(10);
+  const t = w.addText(label);
+  t.font = Font.semiboldRoundedSystemFont(12);
+  t.textColor = MUTED_COLOR;
+  w.addSpacer(5);
+}
 
-  const w = new ListWidget();
-  w.backgroundColor = BACKGROUND_COLOR;
-  w.setPadding(14, 16, 14, 16);
-
-  // Refresh every 15 minutes
-  const refresh = new Date();
-  refresh.setMinutes(refresh.getMinutes() + 15);
-  w.refreshAfterDate = refresh;
-
-  if (events.length === 0) {
-    w.addSpacer();
-    const msg = w.addText("No Events Today");
-    msg.font = Font.semiboldRoundedSystemFont(16);
-    msg.textColor = TEXT_COLOR;
-    w.addSpacer();
-    return w;
-  }
-
-  const shown = events.slice(0, MAX_EVENTS);
-
-  for (let i = 0; i < shown.length; i++) {
-    const event = shown[i];
+// --- Render a list of events into the widget ---
+function addEventRows(w, events) {
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
 
     const row = w.addStack();
     row.layoutHorizontally();
@@ -98,17 +90,60 @@ async function buildWidget() {
     title.textColor = TEXT_COLOR;
     title.lineLimit = 1;
 
-    if (i < shown.length - 1) {
-      w.addSpacer(7);
+    if (i < events.length - 1) w.addSpacer(7);
+  }
+}
+
+// --- Build widget ---
+async function buildWidget() {
+  const { todayEvents, tomorrowEvents } = await getEvents();
+
+  const w = new ListWidget();
+  w.backgroundColor = BACKGROUND_COLOR;
+  w.setPadding(14, 16, 14, 16);
+
+  // Refresh every 15 minutes
+  const refresh = new Date();
+  refresh.setMinutes(refresh.getMinutes() + 15);
+  w.refreshAfterDate = refresh;
+
+  const hasToday    = todayEvents.length > 0;
+  const hasTomorrow = tomorrowEvents.length > 0;
+
+  if (!hasToday && !hasTomorrow) {
+    w.addSpacer();
+    const msg = w.addText("No Events Today\nor Tomorrow");
+    msg.font = Font.semiboldRoundedSystemFont(15);
+    msg.textColor = TEXT_COLOR;
+    w.addSpacer();
+    return w;
+  }
+
+  // Budget MAX_EVENTS across both days
+  const todayShown    = todayEvents.slice(0, MAX_EVENTS);
+  const remaining     = MAX_EVENTS - todayShown.length;
+  const tomorrowShown = tomorrowEvents.slice(0, remaining);
+
+  if (hasToday) {
+    addSectionLabel(w, "Today", true);
+    addEventRows(w, todayShown);
+    if (todayEvents.length > todayShown.length) {
+      w.addSpacer(4);
+      const more = w.addText(`+${todayEvents.length - todayShown.length} more`);
+      more.font = Font.systemFont(11);
+      more.textColor = MUTED_COLOR;
     }
   }
 
-  // Overflow indicator
-  if (events.length > MAX_EVENTS) {
-    w.addSpacer(6);
-    const more = w.addText(`+${events.length - MAX_EVENTS} more`);
-    more.font = Font.systemFont(11);
-    more.textColor = MUTED_COLOR;
+  if (hasTomorrow && tomorrowShown.length > 0) {
+    addSectionLabel(w, "Tomorrow", !hasToday);
+    addEventRows(w, tomorrowShown);
+    if (tomorrowEvents.length > tomorrowShown.length) {
+      w.addSpacer(4);
+      const more = w.addText(`+${tomorrowEvents.length - tomorrowShown.length} more`);
+      more.font = Font.systemFont(11);
+      more.textColor = MUTED_COLOR;
+    }
   }
 
   return w;
