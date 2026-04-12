@@ -60,6 +60,18 @@ function iCloudDriveRoot() {
   return parts.slice(0, -2).join("/") + "/com~apple~CloudDocs";
 }
 
+// Attempt to download (if needed) and read a local iCloud file.
+// Does NOT rely on fileExists() — that can return false for files that are
+// in iCloud but not yet cached on-device.
+async function tryReadiCloudImage(fm, path) {
+  try {
+    await fm.downloadFileFromiCloud(path);
+    return fm.readImage(path);
+  } catch (_) {
+    return null;
+  }
+}
+
 async function loadIcon(source) {
   if (!source) return null;
   try {
@@ -72,17 +84,13 @@ async function loadIcon(source) {
 
     // 1. Try path relative to iCloud Drive/Scriptable/ folder
     const scriptablePath = fm.joinPath(fm.documentsDirectory(), source);
-    if (fm.fileExists(scriptablePath)) {
-      await fm.downloadFileFromiCloud(scriptablePath);
-      return fm.readImage(scriptablePath);
-    }
+    const fromScriptable = await tryReadiCloudImage(fm, scriptablePath);
+    if (fromScriptable) return fromScriptable;
 
     // 2. Try path relative to iCloud Drive root (e.g. "CTO/Icons/icon.png")
     const iCloudPath = fm.joinPath(iCloudDriveRoot(), source);
-    if (fm.fileExists(iCloudPath)) {
-      await fm.downloadFileFromiCloud(iCloudPath);
-      return fm.readImage(iCloudPath);
-    }
+    const fromDrive = await tryReadiCloudImage(fm, iCloudPath);
+    if (fromDrive) return fromDrive;
   } catch (_) {
     // Icon failed to load — widget renders without it
   }
