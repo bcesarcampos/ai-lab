@@ -25,8 +25,8 @@ const ERROR_COLOR       = new Color("#f87171");
 const PLACEHOLDER_COLOR = new Color("#3a3a3c");  // image placeholder background
 
 const ITEMS_SMALL  = 2;
-const ITEMS_MEDIUM = 3;  // reduced from 4 to fit thumbnail rows in medium
-const ITEMS_LARGE  = 5;
+const ITEMS_MEDIUM = 3;
+const ITEMS_LARGE  = 4;
 
 // --- Helpers ---
 
@@ -141,32 +141,49 @@ async function fetchNews() {
 
 // --- Widget Components ---
 
-// Adds the shared header used by medium and large widgets:
-// "Top Financial News" (large white title) with chart icon on the right,
-// and "Last Updated: HH:MM AM" subtitle below the title.
-function addHeader(container, titleFontSize, subtitleFontSize, iconSize) {
-  const header = container.addStack();
-  header.layoutHorizontally();
-  header.centerAlignContent();
+// Adds a single-line header row: title on the left, updated time on the right.
+// Used by medium widget where vertical space is very tight.
+function addCompactHeader(container, data, titleFontSize, timeFontSize) {
+  const row = container.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
 
-  const titleCol = header.addStack();
-  titleCol.layoutVertically();
+  const title = row.addText("Top Financial News");
+  title.font      = Font.boldSystemFont(titleFontSize);
+  title.textColor = TEXT_COLOR;
 
-  const titleText = titleCol.addText("Top Financial News");
-  titleText.font      = Font.boldSystemFont(titleFontSize);
-  titleText.textColor = TEXT_COLOR;
+  row.addSpacer();
 
-  titleCol.addSpacer(2);
+  const upd = row.addText("Updated " + formatUpdatedTime(data.fetchedAt));
+  upd.font      = Font.systemFont(timeFontSize);
+  upd.textColor = MUTED_COLOR;
+}
 
-  const updText = titleCol.addText("Last Updated: " + formatUpdatedTime(new Date()));
-  updText.font      = Font.systemFont(subtitleFontSize);
-  updText.textColor = MUTED_COLOR;
+// Adds a two-line header: title on top, updated time below, chart icon on the right.
+// Used by large widget where there is more vertical room.
+function addFullHeader(container, data, titleFontSize, timeFontSize, iconSize) {
+  const row = container.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
 
-  header.addSpacer();
+  const textCol = row.addStack();
+  textCol.layoutVertically();
+
+  const title = textCol.addText("Top Financial News");
+  title.font      = Font.boldSystemFont(titleFontSize);
+  title.textColor = TEXT_COLOR;
+
+  textCol.addSpacer(2);
+
+  const upd = textCol.addText("Last Updated: " + formatUpdatedTime(data.fetchedAt));
+  upd.font      = Font.systemFont(timeFontSize);
+  upd.textColor = MUTED_COLOR;
+
+  row.addSpacer(12);
 
   const sym = SFSymbol.named("chart.line.uptrend.xyaxis");
   sym.applyMediumWeight();
-  const icon = header.addImage(sym.image);
+  const icon = row.addImage(sym.image);
   icon.imageSize = new Size(iconSize, iconSize);
   icon.tintColor = ACCENT_COLOR;
 }
@@ -289,23 +306,22 @@ function buildSmallWidget(data) {
 function buildMediumWidget(data) {
   const w = new ListWidget();
   w.backgroundColor = BACKGROUND_COLOR;
-  w.setPadding(14, 16, 10, 16);
+  w.setPadding(12, 16, 12, 16);
   w.url = YAHOO_FINANCE_URL;
 
   const nextRefresh = new Date();
   nextRefresh.setMinutes(nextRefresh.getMinutes() + 30);
   w.refreshAfterDate = nextRefresh;
 
-  addHeader(w, 16, 10, 26);
-  w.addSpacer(8);
+  // Single-line header — keeps it compact so image rows have room
+  addCompactHeader(w, data, 13, 10);
+  w.addSpacer(6);
 
+  // 48pt thumbnails leave enough vertical room for the header above
   const slice = data.items.slice(0, ITEMS_MEDIUM);
   slice.forEach((item, i) =>
-    addNewsRow(w, item, i === slice.length - 1, 60, 12, 10, 6)
+    addNewsRow(w, item, i === slice.length - 1, 48, 12, 10, 6)
   );
-
-  w.addSpacer(6);
-  addFooter(w, 12);
 
   return w;
 }
@@ -320,12 +336,14 @@ function buildLargeWidget(data) {
   nextRefresh.setMinutes(nextRefresh.getMinutes() + 30);
   w.refreshAfterDate = nextRefresh;
 
-  addHeader(w, 20, 11, 30);
-  w.addSpacer(12);
+  // Two-line header with chart icon — large widget has enough vertical room
+  addFullHeader(w, data, 20, 11, 28);
+  w.addSpacer(10);
 
+  // 4 items at 62pt: fits comfortably in a large widget (~382pt tall)
   const slice = data.items.slice(0, ITEMS_LARGE);
   slice.forEach((item, i) =>
-    addNewsRow(w, item, i === slice.length - 1, 72, 13, 10, 10)
+    addNewsRow(w, item, i === slice.length - 1, 62, 13, 10, 10)
   );
 
   w.addSpacer(8);
