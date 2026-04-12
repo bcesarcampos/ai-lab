@@ -2,10 +2,10 @@
 // Built for Scriptable (https://scriptable.app)
 // Data: Yahoo Finance RSS feed — no API key required
 //
-// Sizes: small (2 headlines), medium (4 headlines), large (5 headlines)
-// Tap behavior: tapping a headline opens the article via Yahoo Finance universal link
-//               (opens in Yahoo Finance app if installed, Safari otherwise);
-//               tapping the header area opens the Yahoo Finance app directly.
+// Sizes: small (2 headlines, text-only), medium (3 headlines + thumbnails),
+//        large (5 headlines + thumbnails)
+// Tap: tapping a headline opens the article (Yahoo Finance app via universal link,
+//      or Safari as fallback); tapping the header/footer opens the app directly.
 // Note: iOS may refresh the widget less often in Low Power Mode.
 //
 // Setup:
@@ -15,16 +15,17 @@
 //   4. Long-press the widget → Edit Widget → choose this script
 
 const RSS_URL           = "https://finance.yahoo.com/news/rssindex";
-const YAHOO_FINANCE_URL = "yahoo-finance://";  // fallback tap: opens Yahoo Finance app
+const YAHOO_FINANCE_URL = "yahoo-finance://";
 
-const BACKGROUND_COLOR = new Color("#242529");
-const TEXT_COLOR       = new Color("#e2e8f0");
-const MUTED_COLOR      = new Color("#64748b");
-const ACCENT_COLOR     = new Color("#22d3a0");
-const ERROR_COLOR      = new Color("#f87171");
+const BACKGROUND_COLOR  = new Color("#242529");
+const TEXT_COLOR        = new Color("#e2e8f0");
+const MUTED_COLOR       = new Color("#64748b");
+const ACCENT_COLOR      = new Color("#22d3a0");
+const ERROR_COLOR       = new Color("#f87171");
+const PLACEHOLDER_COLOR = new Color("#3a3a3c");  // image placeholder background
 
 const ITEMS_SMALL  = 2;
-const ITEMS_MEDIUM = 4;
+const ITEMS_MEDIUM = 3;  // reduced from 4 to fit thumbnail rows in medium
 const ITEMS_LARGE  = 5;
 
 // --- Helpers ---
@@ -53,10 +54,9 @@ function timeAgo(date) {
 }
 
 function formatUpdatedTime(date) {
-  const timeStr = date.toLocaleTimeString("en-US", {
+  return date.toLocaleTimeString("en-US", {
     hour: "numeric", minute: "2-digit", hour12: true,
   });
-  return "Updated " + timeStr;
 }
 
 // --- RSS Parsing ---
@@ -79,25 +79,38 @@ function parseRSS(xmlString) {
       title = plainTitle ? plainTitle[1] : "";
     }
     title = decodeHTMLEntities(title).replace(/\s+/g, " ").trim();
-    if (!title) continue;  // skip items with no parseable title
+    if (!title) continue;
 
-    // Link (plain text URL, no CDATA in Yahoo Finance RSS)
+    // Link
     const linkMatch = block.match(/<link>\s*(https?:\/\/[^\s<]+)\s*<\/link>/);
     const link = linkMatch
       ? decodeHTMLEntities(linkMatch[1].trim())
       : YAHOO_FINANCE_URL;
 
-    // pubDate — RFC 2822 format; JS Date constructor handles this natively
+    // pubDate — RFC 2822; JS Date handles this natively
     const pubMatch = block.match(/<pubDate>([^<]+)<\/pubDate>/);
     const pubDate  = pubMatch
       ? (() => { const d = new Date(pubMatch[1].trim()); return isNaN(d.getTime()) ? null : d; })()
       : null;
 
-    // Source (publisher name); not always present
+    // Source publisher name
     const srcMatch = block.match(/<source[^>]*>([^<]+)<\/source>/);
     const source   = srcMatch ? srcMatch[1].trim() : "Yahoo Finance";
 
-    items.push({ title, link, pubDate, source });
+    // Thumbnail image URL — try media:content, media:thumbnail, then enclosure
+    let imageUrl = null;
+    const mc = block.match(/<media:content[^>]*url="([^"]+)"[^>]*>/);
+    if (mc) imageUrl = mc[1];
+    if (!imageUrl) {
+      const mt = block.match(/<media:thumbnail[^>]*url="([^"]+)"[^>]*>/);
+      if (mt) imageUrl = mt[1];
+    }
+    if (!imageUrl) {
+      const enc = block.match(/<enclosure[^>]*url="([^"]+)"[^>]*type="image[^"]*"[^>]*>/);
+      if (enc) imageUrl = enc[1];
+    }
+
+    items.push({ title, link, pubDate, source, imageUrl, image: null });
   }
 
   return items;
@@ -110,45 +123,133 @@ async function fetchNews() {
   req.timeoutInterval = 10;
   const xmlString = await req.loadString();
   const items     = parseRSS(xmlString);
+
+  // Load all thumbnails concurrently; silently ignore failures
+  await Promise.all(items.map(async (item) => {
+    if (!item.imageUrl) return;
+    try {
+      const imgReq = new Request(item.imageUrl);
+      imgReq.timeoutInterval = 5;
+      item.image = await imgReq.loadImage();
+    } catch (_) {
+      item.image = null;
+    }
+  }));
+
   return { items, fetchedAt: new Date() };
 }
 
 // --- Widget Components ---
 
-// Adds a single news item (headline + source · time) to `container`.
-// Sets the stack URL so tapping the item opens the article directly.
-function addNewsItem(container, item, isLast, headlineFontSize, metaFontSize, spacingAfter) {
+// Adds the shared header used by medium and large widgets:
+// "Top Financial News" (large white title) with chart icon on the right,
+// and "Last Updated: HH:MM AM" subtitle below the title.
+function addHeader(container, titleFontSize, subtitleFontSize, iconSize) {
+  const header = container.addStack();
+  header.layoutHorizontally();
+  header.centerAlignContent();
+
+  const titleCol = header.addStack();
+  titleCol.layoutVertically();
+
+  const titleText = titleCol.addText("Top Financial News");
+  titleText.font      = Font.boldSystemFont(titleFontSize);
+  titleText.textColor = TEXT_COLOR;
+
+  titleCol.addSpacer(2);
+
+  const updText = titleCol.addText("Last Updated: " + formatUpdatedTime(new Date()));
+  updText.font      = Font.systemFont(subtitleFontSize);
+  updText.textColor = MUTED_COLOR;
+
+  header.addSpacer();
+
+  const sym = SFSymbol.named("chart.line.uptrend.xyaxis");
+  sym.applyMediumWeight();
+  const icon = header.addImage(sym.image);
+  icon.imageSize = new Size(iconSize, iconSize);
+  icon.tintColor = ACCENT_COLOR;
+}
+
+// Adds the footer separator + "View More News →" row.
+function addFooter(container, fontSize) {
+  const sep = container.addStack();
+  sep.size            = new Size(0, 1);
+  sep.backgroundColor = new Color("#64748b", 0.3);
+
+  container.addSpacer(6);
+
+  const footer = container.addStack();
+  footer.layoutHorizontally();
+  footer.url = YAHOO_FINANCE_URL;
+
+  const footerText = footer.addText("View More News  →");
+  footerText.font      = Font.boldSystemFont(fontSize);
+  footerText.textColor = TEXT_COLOR;
+}
+
+// Adds a news row with thumbnail image (left) and headline + meta (right).
+// Used in medium and large widgets.
+function addNewsRow(container, item, isLast, imgSize, headlineFontSize, metaFontSize, spacingAfter) {
+  const row = container.addStack();
+  row.layoutHorizontally();
+  row.centerAlignContent();
+  row.url = (item.link && item.link.startsWith("http")) ? item.link : YAHOO_FINANCE_URL;
+
+  // Thumbnail
+  const thumb = row.addStack();
+  thumb.size         = new Size(imgSize, imgSize);
+  thumb.cornerRadius = 8;
+  if (item.image) {
+    thumb.backgroundImage = item.image;
+  } else {
+    thumb.backgroundColor = PLACEHOLDER_COLOR;
+  }
+
+  row.addSpacer(10);
+
+  // Content: headline + source/time
+  const content = row.addStack();
+  content.layoutVertically();
+
+  const headline = content.addText(item.title);
+  headline.font               = Font.semiboldSystemFont(headlineFontSize);
+  headline.textColor          = TEXT_COLOR;
+  headline.lineLimit          = 2;
+  headline.minimumScaleFactor = 0.85;
+
+  content.addSpacer(3);
+
+  const ago = timeAgo(item.pubDate);
+  const metaStr = ago ? item.source + "  " + ago : item.source;
+  const meta = content.addText(metaStr);
+  meta.font      = Font.systemFont(metaFontSize);
+  meta.textColor = MUTED_COLOR;
+
+  if (!isLast) container.addSpacer(spacingAfter);
+}
+
+// Adds a text-only news item (no thumbnail). Used in the small widget.
+function addSmallNewsItem(container, item, isLast) {
   const row = container.addStack();
   row.layoutVertically();
   row.url = (item.link && item.link.startsWith("http")) ? item.link : YAHOO_FINANCE_URL;
 
   const headline = row.addText(item.title);
-  headline.font               = Font.semiboldSystemFont(headlineFontSize);
+  headline.font               = Font.semiboldSystemFont(11);
   headline.textColor          = TEXT_COLOR;
   headline.lineLimit          = 2;
   headline.minimumScaleFactor = 0.85;
 
   row.addSpacer(3);
 
-  const meta = row.addStack();
-  meta.layoutHorizontally();
-
-  const srcText = meta.addText(item.source);
-  srcText.font      = Font.systemFont(metaFontSize);
-  srcText.textColor = MUTED_COLOR;
-
   const ago = timeAgo(item.pubDate);
-  if (ago) {
-    const dot = meta.addText(" · ");
-    dot.font      = Font.systemFont(metaFontSize);
-    dot.textColor = MUTED_COLOR;
+  const metaStr = ago ? item.source + "  " + ago : item.source;
+  const meta = row.addText(metaStr);
+  meta.font      = Font.systemFont(9);
+  meta.textColor = MUTED_COLOR;
 
-    const timeText = meta.addText(ago);
-    timeText.font      = Font.systemFont(metaFontSize);
-    timeText.textColor = MUTED_COLOR;
-  }
-
-  if (!isLast) container.addSpacer(spacingAfter);
+  if (!isLast) container.addSpacer(6);
 }
 
 // --- Widget Builders ---
@@ -163,23 +264,24 @@ function buildSmallWidget(data) {
   nextRefresh.setMinutes(nextRefresh.getMinutes() + 30);
   w.refreshAfterDate = nextRefresh;
 
-  // Two-line header (stacked vertically to fit the narrow square)
-  const titleText = w.addText("FINANCE NEWS");
-  titleText.font      = Font.boldSystemFont(10);
-  titleText.textColor = ACCENT_COLOR;
+  // Compact two-line header (no icon — narrow square)
+  const titleText = w.addText("Top Financial News");
+  titleText.font               = Font.boldSystemFont(11);
+  titleText.textColor          = TEXT_COLOR;
+  titleText.minimumScaleFactor = 0.8;
 
   w.addSpacer(2);
 
-  const updText = w.addText(formatUpdatedTime(data.fetchedAt));
+  const updText = w.addText("Last Updated: " + formatUpdatedTime(new Date()));
   updText.font      = Font.systemFont(9);
   updText.textColor = MUTED_COLOR;
 
   w.addSpacer(8);
 
   const slice = data.items.slice(0, ITEMS_SMALL);
-  slice.forEach((item, i) => addNewsItem(w, item, i === slice.length - 1, 11, 9, 6));
+  slice.forEach((item, i) => addSmallNewsItem(w, item, i === slice.length - 1));
 
-  w.addSpacer();  // push content to the top
+  w.addSpacer();
 
   return w;
 }
@@ -187,32 +289,23 @@ function buildSmallWidget(data) {
 function buildMediumWidget(data) {
   const w = new ListWidget();
   w.backgroundColor = BACKGROUND_COLOR;
-  w.setPadding(14, 16, 14, 16);
+  w.setPadding(14, 16, 10, 16);
   w.url = YAHOO_FINANCE_URL;
 
   const nextRefresh = new Date();
   nextRefresh.setMinutes(nextRefresh.getMinutes() + 30);
   w.refreshAfterDate = nextRefresh;
 
-  // Single-row header: title left, updated time right
-  const header = w.addStack();
-  header.layoutHorizontally();
-  header.centerAlignContent();
-
-  const titleText = header.addText("FINANCE NEWS");
-  titleText.font      = Font.boldSystemFont(12);
-  titleText.textColor = ACCENT_COLOR;
-
-  header.addSpacer();
-
-  const updText = header.addText(formatUpdatedTime(data.fetchedAt));
-  updText.font      = Font.systemFont(10);
-  updText.textColor = MUTED_COLOR;
-
+  addHeader(w, 16, 10, 26);
   w.addSpacer(8);
 
   const slice = data.items.slice(0, ITEMS_MEDIUM);
-  slice.forEach((item, i) => addNewsItem(w, item, i === slice.length - 1, 13, 10, 8));
+  slice.forEach((item, i) =>
+    addNewsRow(w, item, i === slice.length - 1, 60, 12, 10, 6)
+  );
+
+  w.addSpacer(6);
+  addFooter(w, 12);
 
   return w;
 }
@@ -220,39 +313,23 @@ function buildMediumWidget(data) {
 function buildLargeWidget(data) {
   const w = new ListWidget();
   w.backgroundColor = BACKGROUND_COLOR;
-  w.setPadding(16, 18, 16, 18);
+  w.setPadding(16, 18, 12, 18);
   w.url = YAHOO_FINANCE_URL;
 
   const nextRefresh = new Date();
   nextRefresh.setMinutes(nextRefresh.getMinutes() + 30);
   w.refreshAfterDate = nextRefresh;
 
-  // Single-row header: title left, updated time right
-  const header = w.addStack();
-  header.layoutHorizontally();
-  header.centerAlignContent();
-
-  const titleText = header.addText("FINANCE NEWS");
-  titleText.font      = Font.boldSystemFont(13);
-  titleText.textColor = ACCENT_COLOR;
-
-  header.addSpacer();
-
-  const updText = header.addText(formatUpdatedTime(data.fetchedAt));
-  updText.font      = Font.systemFont(11);
-  updText.textColor = MUTED_COLOR;
-
-  w.addSpacer(6);
-
-  // Subtle 1pt separator line below the header
-  const sep = w.addStack();
-  sep.size            = new Size(0, 1);
-  sep.backgroundColor = new Color("#64748b", 0.3);
-
-  w.addSpacer(8);
+  addHeader(w, 20, 11, 30);
+  w.addSpacer(12);
 
   const slice = data.items.slice(0, ITEMS_LARGE);
-  slice.forEach((item, i) => addNewsItem(w, item, i === slice.length - 1, 13, 10, 10));
+  slice.forEach((item, i) =>
+    addNewsRow(w, item, i === slice.length - 1, 72, 13, 10, 10)
+  );
+
+  w.addSpacer(8);
+  addFooter(w, 13);
 
   return w;
 }
@@ -263,9 +340,9 @@ function buildErrorWidget(message) {
   w.setPadding(14, 16, 14, 16);
   w.url = YAHOO_FINANCE_URL;
 
-  const title = w.addText("FINANCE NEWS");
-  title.font      = Font.boldSystemFont(12);
-  title.textColor = ACCENT_COLOR;
+  const title = w.addText("Top Financial News");
+  title.font      = Font.boldSystemFont(14);
+  title.textColor = TEXT_COLOR;
 
   w.addSpacer(8);
 
