@@ -15,8 +15,10 @@
 //   {
 //     "title":    "MOTIVATION",          // top text (rendered ALL-CAPS)
 //     "subtitle": "",                    // bottom text (rendered ALL-CAPS)
-//     "iconUrl":  null,                  // https://… URL  OR  filename in
-//                                        // iCloud Drive/Scriptable/ folder
+//     "iconUrl":  null,                  // https://… URL
+//                                        // OR filename inside iCloud Drive/Scriptable/
+//                                        // OR path relative to iCloud Drive root
+//                                        //    e.g. "CTO/Icons/my-icon.png"
 //     "bgColor":  "#1C1C1E",             // background hex color
 //     "textColor":"#FFFFFF",             // title & subtitle hex color
 //     "iconSize": 60                     // base icon size in points
@@ -49,6 +51,15 @@ if (rawParam) {
 }
 
 // ─── Icon loading ──────────────────────────────────────────────────────────────
+// Returns the iCloud Drive root folder (the "iCloud Drive" shown in Files.app),
+// which sits two directory levels above the Scriptable documents folder.
+function iCloudDriveRoot() {
+  const fm = FileManager.iCloud();
+  const parts = fm.documentsDirectory().split("/");
+  // Remove the last two segments: /iCloud~…~Scriptable/Documents
+  return parts.slice(0, -2).join("/") + "/com~apple~CloudDocs";
+}
+
 async function loadIcon(source) {
   if (!source) return null;
   try {
@@ -57,12 +68,20 @@ async function loadIcon(source) {
       req.timeoutInterval = 10;
       return await req.loadImage();
     }
-    // Local file in iCloud Drive/Scriptable/
     const fm = FileManager.iCloud();
-    const path = fm.joinPath(fm.documentsDirectory(), source);
-    if (fm.fileExists(path)) {
-      await fm.downloadFileFromiCloud(path);
-      return fm.readImage(path);
+
+    // 1. Try path relative to iCloud Drive/Scriptable/ folder
+    const scriptablePath = fm.joinPath(fm.documentsDirectory(), source);
+    if (fm.fileExists(scriptablePath)) {
+      await fm.downloadFileFromiCloud(scriptablePath);
+      return fm.readImage(scriptablePath);
+    }
+
+    // 2. Try path relative to iCloud Drive root (e.g. "CTO/Icons/icon.png")
+    const iCloudPath = fm.joinPath(iCloudDriveRoot(), source);
+    if (fm.fileExists(iCloudPath)) {
+      await fm.downloadFileFromiCloud(iCloudPath);
+      return fm.readImage(iCloudPath);
     }
   } catch (_) {
     // Icon failed to load — widget renders without it
