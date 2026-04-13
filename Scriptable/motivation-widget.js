@@ -97,20 +97,6 @@ async function loadIcon(source) {
   return null;
 }
 
-// ─── Image compositing ─────────────────────────────────────────────────────────
-
-// Draws the icon onto a solid background so transparent PNG areas show the
-// widget background color instead of a gray checkerboard.
-function compositeOnBackground(icon, bgHex, size) {
-  const dc = new DrawContext();
-  dc.size = new Size(size, size);
-  dc.opaque = true;
-  dc.setFillColor(new Color(bgHex));
-  dc.fillRect(new Rect(0, 0, size, size));
-  dc.drawImageInRect(icon, new Rect(0, 0, size, size));
-  return dc.getImage();
-}
-
 // ─── Layout helpers ────────────────────────────────────────────────────────────
 
 // Wraps an element in a horizontal row with spacers on both sides so it
@@ -135,6 +121,9 @@ function addTitle(parent, text, fontSize, textColor) {
 
 function addIcon(parent, image, size) {
   addCentered(parent, (row) => {
+    // Set the row's background to the widget bg color so transparent PNG
+    // areas show the same color instead of a gray checkerboard.
+    row.backgroundColor = new Color(settings.bgColor);
     const el = row.addImage(image);
     el.imageSize = new Size(size, size);
   });
@@ -260,10 +249,7 @@ function buildWidget(icon) {
 async function run() {
   let widget;
   try {
-    const rawIcon = await loadIcon(settings.iconUrl);
-    const icon = rawIcon
-      ? compositeOnBackground(rawIcon, settings.bgColor, settings.iconSize * 2)
-      : null;
+    const icon = await loadIcon(settings.iconUrl);
     widget = buildWidget(icon);
   } catch (e) {
     widget = buildErrorWidget("Widget error");
