@@ -121,11 +121,14 @@ function addTitle(parent, text, fontSize, textColor) {
 
 function addIcon(parent, image, size) {
   addCentered(parent, (row) => {
-    // Set the row's background to the widget bg color so transparent PNG
-    // areas show the same color instead of a gray checkerboard.
-    row.backgroundColor = new Color(settings.bgColor);
-    const el = row.addImage(image);
-    el.imageSize = new Size(size, size);
+    // Use backgroundImage on a sized stack instead of WidgetImage.
+    // WidgetKit composites backgroundImage with backgroundColor at the system
+    // level, so transparent PNG pixels reveal bgColor rather than a checkerboard.
+    const box = row.addStack();
+    box.size = new Size(size, size);
+    box.backgroundColor = new Color(settings.bgColor);
+    box.backgroundImage = image;
+    box.addSpacer();
   });
 }
 
