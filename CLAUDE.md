@@ -4,83 +4,31 @@ This file provides guidance for AI assistants (Claude Code and similar tools) wo
 
 ## Repository Overview
 
-**ai-lab** is a Python project currently in its initial scaffold phase. No source code, dependencies, or infrastructure has been set up yet. This document will be updated as the project evolves.
+**ai-lab** is a personal lab for AI-assisted experiments and tools. It currently contains Scriptable iOS widgets (JavaScript).
 
-- **Language**: Python (inferred from `.gitignore`)
-- **Branch model**: Feature branches off `main`; current active development branch is `claude/add-claude-documentation-ozQny`
+- **Languages**: JavaScript (Scriptable widgets)
+- **Branch model**: Feature branches off `main`; never push directly to `main`
 - **Remote**: `bcesarcampos/ai-lab` on GitHub
 
 ## Current State
 
-The repository contains only:
-- `README.md` — minimal title placeholder
-- `.gitignore` — comprehensive Python project gitignore
+The repository contains:
+- `README.md` — project overview and widget index
+- `.gitignore` — project gitignore
 - `CLAUDE.md` — this file
+- `Scriptable/` — iOS widgets built with [Scriptable](https://scriptable.app)
+  - `motivation-widget.js` — configurable motivation widget with text, icon, and colors
+  - `usd-brl-widget.js` — simple USD → BRL exchange rate
+  - `usd-brl-with-graph-widget.js` — USD → BRL rate with historical graph
+  - `usd-brl-converter-widget.js` — USD ↔ BRL converter
+  - `google-calendar-widget.js` — Google Calendar upcoming events
+  - `yahoo-finance-news-widget.js` — Yahoo Finance news feed
 
-No source code, tests, configuration files, or CI/CD pipelines exist yet.
-
-## Inferred Tech Stack (from `.gitignore`)
-
-The `.gitignore` references tooling that suggests this project may use:
+## Tech Stack
 
 | Category | Tools |
 |---|---|
-| Package managers | `uv`, `poetry`, `pdm`, `pipenv`, `pixi` |
-| Linting / formatting | `ruff` |
-| Type checking | `mypy`, `pyre`, `pytype` |
-| Testing | `pytest`, `tox`, `nox`, `hypothesis` |
-| Notebooks | Jupyter, Marimo |
-| Automation | Abstra |
-| Web frameworks | Django, Flask (patterns present) |
-| Docs | Sphinx, mkdocs |
-
-When source code is added, check which tools are actually installed and configured before running commands.
-
-## Development Workflows
-
-### Setting Up
-
-Since no dependency manager is configured yet, check for any of the following files when starting work:
-
-```bash
-# uv
-uv sync
-
-# poetry
-poetry install
-
-# pip
-pip install -r requirements.txt
-# or
-pip install -e .
-```
-
-Always activate or use a virtual environment — never install to the system Python.
-
-### Running Tests
-
-Once a test framework is configured, the standard pytest invocation applies:
-
-```bash
-pytest
-# or with coverage
-pytest --cov
-```
-
-### Linting and Formatting
-
-If `ruff` is configured:
-
-```bash
-ruff check .
-ruff format .
-```
-
-If `mypy` is configured:
-
-```bash
-mypy .
-```
+| Scriptable widgets | JavaScript (ES2020+, Scriptable API) |
 
 ## Conventions for AI Assistants
 
@@ -91,14 +39,6 @@ mypy .
 - Prefer editing existing files over creating new ones.
 - Do not create documentation files (e.g., `README.md`, extra `.md` files) unless explicitly asked.
 - Never commit secrets, `.env` files, or credentials.
-
-### Python Conventions
-
-- Follow PEP 8 style (enforced by `ruff` once configured).
-- Use type annotations on new functions and classes when the project adopts `mypy`.
-- Prefer `pathlib.Path` over `os.path` for file operations.
-- Use f-strings for string formatting.
-- Keep imports grouped: stdlib → third-party → local, separated by blank lines.
 
 ### Git Workflow
 
@@ -116,7 +56,7 @@ The `.gitignore` excludes `.env` and `.envrc`. If environment variables are need
 ## Updating This File
 
 When new tools, frameworks, or conventions are introduced to the project, update this file to reflect them. Specifically update:
-- **Current State** section when source code is added
-- **Inferred Tech Stack** → **Confirmed Tech Stack** once dependencies are locked
+- **Current State** section when new files or directories are added
+- **Tech Stack** when new languages or tools are adopted
 - **Development Workflows** with actual tested commands
 - Any project-specific conventions that differ from the defaults above
